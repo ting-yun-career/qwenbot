@@ -52,15 +52,15 @@ Available Tools:
 Rules:
 
 - Choose only ONE next action.
+- Never repeat an action that has already been completed.
 - Use the observations to decide what is still required.
 - If the user's request has been completely satisfied, return FINISH.
 - Return ONLY the tool name or FINISH.
 - Do not explain your answer.
 """
-#2. Never repeat an action that has already been completed.
-    print('==========================')
-    print("planner prompt: " + prompt)
-    print('==========================')
+    # print('==========================')
+    # print("planner prompt: " + prompt)
+    # print('==========================')
     response = client.chat.completions.create(
         model=os.getenv("MODEL"),
         messages=[
