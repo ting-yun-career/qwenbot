@@ -223,6 +223,10 @@ async def run_agent_loop(
         # Mark task complete
         # --------------------------------
 
+        print('===')
+        print('state: ', state)
+        print('===')
+
         if not observation.lower().startswith(
             "error"
         ):
