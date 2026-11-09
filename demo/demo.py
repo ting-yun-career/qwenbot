@@ -1,19 +1,16 @@
 import asyncio
+import json
 import os
-from pathlib import Path
+from typing import Literal
+
 from dotenv import load_dotenv
-from fastmcp import Client
-from fastmcp.exceptions import ToolError
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
-from pydantic import BaseModel, ValidationError
 from typing_extensions import TypedDict
 
-from MCP.account_manager.schemas import Account
+from account_agent import create_account_agent, get_tool_descriptions
 
 load_dotenv()
-
-ACCOUNT_MANAGER = Path(__file__).parent / "MCP/account_manager/account_manager.py"
 
 llm = ChatOpenAI(
     model=os.getenv("MODEL"),
@@ -22,92 +19,169 @@ llm = ChatOpenAI(
     temperature=0,
 )
 
+account_agent = create_account_agent(llm)
 
-class Action(BaseModel):
-    tool: str
-    arguments: dict
-
-
-class ActionResult(BaseModel):
-    success: bool
-    error: str | None = None
+SUBAGENT_NODES = {"account_agent": "run_account_agent"}
 
 
-class AgentState(TypedDict):
+class Subtask(TypedDict):
+    id: int
+    agent: str
     prompt: str
-    userId: str
-    action: Action | None
-    actionResult: ActionResult | None
-    account: Account | None
+    status: Literal["pending", "done", "failed"]
+    result: str | None
 
 
-async def plan_action(state: AgentState) -> dict:
-    async with Client(ACCOUNT_MANAGER) as client:
-        tools = await client.list_tools()
-    llm_with_tools = llm.bind_tools(
-        [
-            {
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": tool.input_schema,
-                },
-            }
-            for tool in tools
-        ]
+class CoordinatorState(TypedDict):
+    prompt: str
+    subtasks: list[Subtask]
+    current: int | None
+    answer: str | None
+
+
+async def describe_agents() -> dict[str, str]:
+    tools = await get_tool_descriptions()
+    return {
+        "account_agent": f"Handles account subscription tasks. Its tools:\n{tools}",
+        "coordinator": "Answers anything else directly, with no tools.",
+    }
+
+
+def update_subtask(state: CoordinatorState, status: str, result: str) -> dict:
+    subtasks = state["subtasks"].copy()
+    index = state["current"]
+    subtasks[index] = {**subtasks[index], "status": status, "result": result}
+    return {"subtasks": subtasks}
+
+
+async def plan_subtasks(state: CoordinatorState) -> dict:
+    agents = await describe_agents()
+    listing = "\n".join(f"- {name}: {text}" for name, text in agents.items())
+    response = await llm.ainvoke(
+        "Break the request into the smallest independent subtasks. "
+        "Put each subtask on its own line. "
+        "Start each line with the agent name, a colon, then the subtask.\n"
+        "Example output:\n"
+        "account_agent: Show all subscriptions.\n"
+        "coordinator: What is the capital of Italy?\n\n"
+        "Rules: use only the request. "
+        "Never add subtasks the request does not ask for. "
+        "Write each subtask in plain English, not as a function call. "
+        "Keep every detail that is in the request, such as user IDs. "
+        "Choose the agent by topic, even when a detail is missing. "
+        "Never invent details. If a detail, such as a user ID, is missing "
+        "from the request, leave it out.\n"
+        f"Agents:\n{listing}\n\nRequest: {state['prompt']}"
     )
-    response = await llm_with_tools.ainvoke(
-        f"The user ID is {state['userId']}. "
-        f"Pick the tool for this request: {state['prompt']}"
-    )
-    if not response.tool_calls:
-        return {"action": None}
-    call = response.tool_calls[0]
-    return {"action": Action(tool=call["name"], arguments=call["args"])}
-
-
-async def execute_action(state: AgentState) -> dict:
-    action = state["action"]
-    if action is None:
-        return {
-            "actionResult": ActionResult(
-                success=False, error="No tool matches the request"
+    planned = []
+    for line in response.content.splitlines():
+        if ":" not in line:
+            continue
+        agent, prompt = line.split(":", 1)
+        agent = agent.strip().strip("-*` ").lower()
+        if prompt.strip():
+            planned.append(
+                {
+                    "agent": agent if agent in agents else "coordinator",
+                    "prompt": prompt.strip(),
+                }
             )
-        }
-    async with Client(ACCOUNT_MANAGER) as client:
-        try:
-            result = await client.call_tool(action.tool, action.arguments)
-        except ToolError as error:
-            return {"actionResult": ActionResult(success=False, error=str(error))}
-    update = {"actionResult": ActionResult(success=True)}
-    try:
-        update["account"] = Account.model_validate(result.structured_content)
-    except ValidationError:
-        pass
-    return update
+    if not planned:
+        planned = [{"agent": "coordinator", "prompt": state["prompt"]}]
+    subtasks = [
+        Subtask(
+            id=index,
+            agent=item["agent"],
+            prompt=item["prompt"],
+            status="pending",
+            result=None,
+        )
+        for index, item in enumerate(planned)
+    ]
+
+    return {"subtasks": subtasks, "current": None, "answer": None}
 
 
-graph = StateGraph(AgentState)
+def select_subtask(state: CoordinatorState) -> dict:
+    for index, subtask in enumerate(state["subtasks"]):
+        if subtask["status"] == "pending":
+            print({"current": index})
+            return {"current": index}
+    return {"current": None}
 
-graph.add_node("plan_action", plan_action)
-graph.add_node("execute_action", execute_action)
 
-graph.add_edge(START, "plan_action")
-graph.add_edge("plan_action", "execute_action")
-graph.add_edge("execute_action", END)
+def route_subtask(state: CoordinatorState) -> str:
+    if state["current"] is None:
+        return "synthesize"
+    agent = state["subtasks"][state["current"]]["agent"]
+    print(state["subtasks"][state["current"]])
+    return SUBAGENT_NODES.get(agent, "answer_directly")
+
+
+async def run_account_agent(state: CoordinatorState) -> dict:
+    subtask = state["subtasks"][state["current"]]
+    output = await account_agent.ainvoke({"prompt": subtask["prompt"]})
+    if output.get("error"):
+        return update_subtask(state, "failed", output["error"])
+    result = output.get("result")
+    if result is None:
+        return update_subtask(state, "failed", "The agent returned no result")
+    if isinstance(result, list):
+        text = json.dumps([account.model_dump() for account in result])
+    else:
+        text = result.model_dump_json()
+    return update_subtask(state, "done", text)
+
+
+async def answer_directly(state: CoordinatorState) -> dict:
+    subtask = state["subtasks"][state["current"]]
+    response = await llm.ainvoke(subtask["prompt"])
+    return update_subtask(state, "done", response.content)
+
+
+async def synthesize(state: CoordinatorState) -> dict:
+    lines = "\n".join(
+        f"{subtask['id'] + 1}. {subtask['prompt']}\n"
+        f"   status: {subtask['status']}\n   result: {subtask['result']}"
+        for subtask in state["subtasks"]
+    )
+    response = await llm.ainvoke(
+        "Write one final answer to the user's request. "
+        "Use the subtask results. Say clearly which subtasks failed and why.\n"
+        f"Request: {state['prompt']}\n\nSubtasks:\n{lines}"
+    )
+    return {"answer": response.content}
+
+
+graph = StateGraph(CoordinatorState)
+
+graph.add_node("plan_subtasks", plan_subtasks)
+graph.add_node("select_subtask", select_subtask)
+graph.add_node("run_account_agent", run_account_agent)
+graph.add_node("answer_directly", answer_directly)
+graph.add_node("synthesize", synthesize)
+
+graph.add_edge(START, "plan_subtasks")
+graph.add_edge("plan_subtasks", "select_subtask")
+graph.add_conditional_edges(
+    "select_subtask",
+    route_subtask,
+    ["run_account_agent", "answer_directly", "synthesize"],
+)
+graph.add_edge("run_account_agent", "select_subtask")
+graph.add_edge("answer_directly", "select_subtask")
+graph.add_edge("synthesize", END)
 
 app = graph.compile()
 
 if __name__ == "__main__":
     with open("demo.png", "wb") as f:
-        f.write(app.get_graph().draw_mermaid_png())
+        f.write(app.get_graph(xray=True).draw_mermaid_png())
     print("Graph saved to demo.png")
 
-    final = asyncio.run(
-        app.ainvoke({"prompt": input("Enter a prompt: "), "userId": "103"})
-    )
-    print('---')
-    print(final.get("action"))
-    print(final.get("actionResult"))
-    print(final.get("account"))
+    final = asyncio.run(app.ainvoke({"prompt": input("Enter a prompt: ")}))
+    print("---")
+    for subtask in final["subtasks"]:
+        print(subtask)
+    print("---")
+    print(final["answer"])

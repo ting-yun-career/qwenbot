@@ -35,10 +35,10 @@ def to_account(row: sqlite3.Row) -> Account:
 
 
 @mcp.tool(description="List all user subscriptions.")
-def list_subscriptions() -> dict[str, Account]:
+def list_subscriptions() -> list[Account]:
     with connect() as conn:
         rows = conn.execute("SELECT * FROM subscriptions").fetchall()
-    return {row["user_id"]: to_account(row) for row in rows}
+    return [to_account(row) for row in rows]
 
 
 @mcp.tool(description="Get the subscription of a user.")
@@ -52,7 +52,7 @@ def get_subscription(user_id: str) -> Account:
     return to_account(row)
 
 
-@mcp.tool(description="Set the subscription state of a user to active or inactive.")
+@mcp.tool(description="Change a user subscription: set active=true to activate or resume it, active=false to deactivate, cancel or end it.")
 def set_subscription_state(user_id: str, active: bool) -> Account:
     with connect() as conn:
         cursor = conn.execute(
