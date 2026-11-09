@@ -1,4 +1,3 @@
-import asyncio
 import json
 import os
 from typing import Literal
@@ -8,7 +7,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, START, END
 from typing_extensions import TypedDict
 
-from account_agent import create_account_agent, get_tool_descriptions
+from agents.account_agent import create_account_agent, get_tool_descriptions
 
 load_dotenv()
 
@@ -19,9 +18,9 @@ llm = ChatOpenAI(
     temperature=0,
 )
 
-account_agent = create_account_agent(llm)
+account_graph = create_account_agent(llm)
 
-SUBAGENT_NODES = {"account_agent": "run_account_agent"}
+SUBAGENT_NODES = {"account_agent": "account_agent"}
 
 
 class Subtask(TypedDict):
@@ -118,9 +117,9 @@ def route_subtask(state: CoordinatorState) -> str:
     return SUBAGENT_NODES.get(agent, "answer_directly")
 
 
-async def run_account_agent(state: CoordinatorState) -> dict:
+async def account_agent(state: CoordinatorState) -> dict:
     subtask = state["subtasks"][state["current"]]
-    output = await account_agent.ainvoke({"prompt": subtask["prompt"]})
+    output = await account_graph.ainvoke({"prompt": subtask["prompt"]})
     if output.get("error"):
         return update_subtask(state, "failed", output["error"])
     result = output.get("result")
@@ -157,7 +156,7 @@ graph = StateGraph(CoordinatorState)
 
 graph.add_node("plan_subtasks", plan_subtasks)
 graph.add_node("select_subtask", select_subtask)
-graph.add_node("run_account_agent", run_account_agent)
+graph.add_node("account_agent", account_agent)
 graph.add_node("answer_directly", answer_directly)
 graph.add_node("synthesize", synthesize)
 
@@ -166,22 +165,10 @@ graph.add_edge("plan_subtasks", "select_subtask")
 graph.add_conditional_edges(
     "select_subtask",
     route_subtask,
-    ["run_account_agent", "answer_directly", "synthesize"],
+    ["account_agent", "answer_directly", "synthesize"],
 )
-graph.add_edge("run_account_agent", "select_subtask")
+graph.add_edge("account_agent", "select_subtask")
 graph.add_edge("answer_directly", "select_subtask")
 graph.add_edge("synthesize", END)
 
-app = graph.compile()
-
-if __name__ == "__main__":
-    with open("demo.png", "wb") as f:
-        f.write(app.get_graph(xray=True).draw_mermaid_png())
-    print("Graph saved to demo.png")
-
-    final = asyncio.run(app.ainvoke({"prompt": input("Enter a prompt: ")}))
-    print("---")
-    for subtask in final["subtasks"]:
-        print(subtask)
-    print("---")
-    print(final["answer"])
+main_agent = graph.compile()

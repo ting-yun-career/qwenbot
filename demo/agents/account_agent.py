@@ -6,7 +6,7 @@ from typing_extensions import TypedDict
 
 from MCP.account_manager.schemas import Account
 
-ACCOUNT_MANAGER = Path(__file__).parent / "MCP/account_manager/server.py"
+ACCOUNT_MANAGER = Path(__file__).parent.parent / "MCP/account_manager/server.py"
 
 
 class AgentState(TypedDict):
