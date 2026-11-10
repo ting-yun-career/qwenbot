@@ -26,7 +26,7 @@ Also: **FastAPI** (backend), **SQLite** (data), **React + Vite** (frontend).
 
 ## main_agent
 
-**Purpose:** the coordinator. It plans, routes, monitors and combines.
+**Purpose:** the coordinator. It decomposes the prompt into subtasks. It delegates each subtask to a subagent for execution. It summarizes the subagent results into a final answer.
 
 - **plan_subtasks:** the LLM splits the prompt into subtasks. It assigns an agent to each.
 - **select_subtask:** picks the next pending subtask. Routes it to an agent. No pending subtask goes to `synthesize`.
