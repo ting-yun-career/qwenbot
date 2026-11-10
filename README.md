@@ -20,9 +20,11 @@ A **coordinator-subagent** system on a small, local LLM. A coordinator splits a 
 
 Also: **FastAPI** (backend), **SQLite** (data), **React + Vite** (frontend).
 
-## main_agent
+## LangGraph Diagram - Coordinator / Worker Architecture
 
 ![main_agent graph](lang_graph_service/agents/main_agent.png)
+
+## main_agent
 
 **Purpose:** the coordinator. It plans, routes, monitors and combines.
 
