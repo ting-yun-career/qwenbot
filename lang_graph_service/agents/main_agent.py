@@ -41,8 +41,14 @@ class CoordinatorState(TypedDict):
 async def describe_agents() -> dict[str, str]:
     tools = await get_tool_descriptions()
     return {
-        "account_agent": f"Handles account subscription tasks. Its tools:\n{tools}",
-        "coordinator": "Answers anything else directly, with no tools.",
+        "account_agent": (
+            "Handles any request about users or their subscriptions: "
+            f"show, activate, cancel. Its tools:\n{tools}"
+        ),
+        "coordinator": (
+            "Fallback. Use only when no other agent fits. "
+            "Answers general questions, with no tools."
+        ),
     }
 
 
@@ -62,6 +68,7 @@ async def plan_subtasks(state: CoordinatorState) -> dict:
         "Start each line with the agent name, a colon, then the subtask.\n"
         "Example output:\n"
         "account_agent: Show all subscriptions.\n"
+        "account_agent: Cancel the subscription of user 7.\n"
         "coordinator: What is the capital of Italy?\n\n"
         "Rules: use only the request. "
         "Never add subtasks the request does not ask for. "

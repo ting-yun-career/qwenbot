@@ -35,6 +35,7 @@ export default function Chat({ onDone }: Props) {
           onChange={(event) => setPrompt(event.target.value)}
           placeholder="Cancel user 101 and tell me the capital of France."
           rows={3}
+          disabled={pending}
         />
         <button type="submit" disabled={pending || !prompt.trim()}>
           {pending ? 'Working...' : 'Send'}
