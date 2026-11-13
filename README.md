@@ -52,6 +52,7 @@ Also: **FastAPI** (backend), **SQLite** (data), **React + Vite** (frontend).
 **Ingest** (`helper/ingest.py`):
 
 - Source text: `helper/protocol.txt`, converted from the PDF with `pdftotext`.
+- **Source document:** *Terms and Conditions of Your Account*, 16 pages, by **Consumers Bank** (Consumers Bancorp). Public document. The text belongs to its owner. Used as test data only.
 - Splits by section. Packs paragraphs into chunks of up to 1500 characters. No overlap.
 - Embeds each chunk with `nomic-embed-text` on **Ollama**. Prefixes: `search_document:` and `search_query:`.
 - Stores 65 chunks in `agents/rag_agent/chroma_db/` (git-ignored).
