@@ -16,10 +16,11 @@ A **coordinator-subagent** system on a small, local LLM. A coordinator splits a 
 | **Pydantic** | Types the `Account` model. The MCP server, the agent and the API share it. It validates tool output. |
 | **FastMCP** | Runs the Account Manager **MCP** server. The agent calls its tools over stdio. |
 | **LangChain** | `ChatOpenAI` talks to the LLM. `bind_tools` passes the MCP tool schemas. |
+| **FastAPI** | Backend API served by `uvicorn`. `/chat` runs `main_agent`. `/accounts` lists and updates accounts. |
 | **Chroma** | Vector database. Stores the chunks of the Terms and Conditions document for `rag_agent`. |
 | **Ollama** | Serves the local model `qwen3:4b-instruct` and the embedding model `nomic-embed-text`. |
 
-Also: **FastAPI** (backend), **SQLite** (data), **React + Vite** (frontend).
+Also: **SQLite** (data), **React + Vite** (frontend).
 
 ## LangGraph Diagram - Coordinator / Worker Architecture
 
