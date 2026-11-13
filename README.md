@@ -12,11 +12,12 @@ A **coordinator-subagent** system on a small, local LLM. A coordinator splits a 
 
 | Framework | Role |
 | --- | --- |
-| **LangGraph** | Builds both agents as graphs of nodes, edges and state. `account_agent` is a subgraph of `main_agent`. |
+| **LangGraph** | Builds all agents as graphs of nodes, edges and state. `account_agent` and `rag_agent` are subgraphs of `main_agent`. |
 | **Pydantic** | Types the `Account` model. The MCP server, the agent and the API share it. It validates tool output. |
 | **FastMCP** | Runs the Account Manager **MCP** server. The agent calls its tools over stdio. |
 | **LangChain** | `ChatOpenAI` talks to the LLM. `bind_tools` passes the MCP tool schemas. |
-| **Ollama** | Serves the local model `qwen3:4b-instruct`. |
+| **Chroma** | Vector database. Stores the chunks of the Terms and Conditions document for `rag_agent`. |
+| **Ollama** | Serves the local model `qwen3:4b-instruct` and the embedding model `nomic-embed-text`. |
 
 Also: **FastAPI** (backend), **SQLite** (data), **React + Vite** (frontend).
 
@@ -30,7 +31,7 @@ Also: **FastAPI** (backend), **SQLite** (data), **React + Vite** (frontend).
 
 - **plan_subtasks:** the LLM splits the prompt into subtasks. It assigns an agent to each.
 - **select_subtask:** picks the next pending subtask. Routes it to an agent. No pending subtask goes to `synthesize`.
-- **account_agent / answer_directly:** run the subtask. Then back to `select_subtask`.
+- **account_agent / rag_agent / answer_directly:** run the subtask. Then back to `select_subtask`.
 - **synthesize:** writes one final answer. It names failed subtasks.
 
 ## account_agent
@@ -40,6 +41,20 @@ Also: **FastAPI** (backend), **SQLite** (data), **React + Vite** (frontend).
 - **extract_user_id:** reads the user ID from the prompt. Fails if there is none.
 - **plan_action:** the LLM picks an MCP tool.
 - **execute_action:** calls the tool.
+
+## rag_agent
+
+**Purpose:** the subagent for document questions. It answers from the bank's *Terms and Conditions of Your Account* (43 sections). Code: `lang_graph_service/agents/rag_agent/`.
+
+- **retrieve:** embeds the prompt. Gets the 5 closest chunks from **Chroma**. No match ends with an error.
+- **answer:** the LLM answers from the chunks only. It names the section numbers. It says so when the chunks do not answer.
+
+**Ingest** (`helper/ingest.py`):
+
+- Source text: `helper/protocol.txt`, converted from the PDF with `pdftotext`.
+- Splits by section. Packs paragraphs into chunks of up to 1500 characters. No overlap.
+- Embeds each chunk with `nomic-embed-text` on **Ollama**. Prefixes: `search_document:` and `search_query:`.
+- Stores 65 chunks in `agents/rag_agent/chroma_db/` (git-ignored).
 
 ## MCP server
 
@@ -61,6 +76,13 @@ Create `lang_graph_service/.env`:
 BASE_URL=http://localhost:11434/v1
 API_KEY=ollama
 MODEL=qwen3:4b-instruct
+```
+
+**RAG data**, once. Needs the Ollama model `nomic-embed-text`. Uses the host of `BASE_URL`. Run from `lang_graph_service/`:
+
+```
+ollama pull nomic-embed-text
+python -m agents.rag_agent.helper.ingest
 ```
 
 **CLI**, from `lang_graph_service/`:

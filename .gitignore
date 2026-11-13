@@ -221,3 +221,6 @@ __marimo__/
 
 # Local databases
 *.db
+
+# Chroma vector store
+chroma_db/

@@ -8,6 +8,7 @@ from langgraph.graph import StateGraph, START, END
 from typing_extensions import TypedDict
 
 from agents.account_agent import create_account_agent, get_tool_descriptions
+from agents.rag_agent.rag_agent import create_rag_agent
 
 load_dotenv()
 
@@ -19,8 +20,9 @@ llm = ChatOpenAI(
 )
 
 account_graph = create_account_agent(llm)
+rag_graph = create_rag_agent(llm)
 
-SUBAGENT_NODES = {"account_agent": "account_agent"}
+SUBAGENT_NODES = {"account_agent": "account_agent", "rag_agent": "rag_agent"}
 
 
 class Subtask(TypedDict):
@@ -44,6 +46,12 @@ async def describe_agents() -> dict[str, str]:
         "account_agent": (
             "Handles any request about users or their subscriptions: "
             f"show, activate, cancel. Its tools:\n{tools}"
+        ),
+        "rag_agent": (
+            "Answers questions about the bank's Terms and Conditions of Your "
+            "Account: deposits, withdrawals, stop payments, checks, fees, "
+            "ownership, disputes, security. Searches the document. "
+            "No account data and no actions."
         ),
         "coordinator": (
             "Fallback. Use only when no other agent fits. "
@@ -69,6 +77,7 @@ async def plan_subtasks(state: CoordinatorState) -> dict:
         "Example output:\n"
         "account_agent: Show all subscriptions.\n"
         "account_agent: Cancel the subscription of user 7.\n"
+        "rag_agent: How do I stop payment on a check?\n"
         "coordinator: What is the capital of Italy?\n\n"
         "Rules: use only the request. "
         "Never add subtasks the request does not ask for. "
@@ -139,6 +148,14 @@ async def account_agent(state: CoordinatorState) -> dict:
     return update_subtask(state, "done", text)
 
 
+async def rag_agent(state: CoordinatorState) -> dict:
+    subtask = state["subtasks"][state["current"]]
+    output = await rag_graph.ainvoke({"prompt": subtask["prompt"]})
+    if output.get("error"):
+        return update_subtask(state, "failed", output["error"])
+    return update_subtask(state, "done", output["answer"])
+
+
 async def answer_directly(state: CoordinatorState) -> dict:
     subtask = state["subtasks"][state["current"]]
     response = await llm.ainvoke(subtask["prompt"])
@@ -164,6 +181,7 @@ graph = StateGraph(CoordinatorState)
 graph.add_node("plan_subtasks", plan_subtasks)
 graph.add_node("select_subtask", select_subtask)
 graph.add_node("account_agent", account_agent)
+graph.add_node("rag_agent", rag_agent)
 graph.add_node("answer_directly", answer_directly)
 graph.add_node("synthesize", synthesize)
 
@@ -172,9 +190,10 @@ graph.add_edge("plan_subtasks", "select_subtask")
 graph.add_conditional_edges(
     "select_subtask",
     route_subtask,
-    ["account_agent", "answer_directly", "synthesize"],
+    ["account_agent", "rag_agent", "answer_directly", "synthesize"],
 )
 graph.add_edge("account_agent", "select_subtask")
+graph.add_edge("rag_agent", "select_subtask")
 graph.add_edge("answer_directly", "select_subtask")
 graph.add_edge("synthesize", END)
 
