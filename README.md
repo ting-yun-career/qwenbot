@@ -102,6 +102,31 @@ cd frontend && npm install && npm run dev
 
 Open `http://localhost:5173`.
 
+## Sample prompts
+
+**account_agent** (seed data: `101` Alice active, `102` Bob inactive)
+
+- `Show all subscriptions.`
+- `Cancel the subscription of user 101.`
+- `Activate user 102.`
+- `Cancel user 999.` Fails: unknown user.
+- `Cancel the subscription.` Fails: no user ID.
+
+**rag_agent**
+
+- `How do I stop payment on a check?`
+- `What happens to the account when the owner dies?`
+- `Is there a penalty for early withdrawal?`
+- `How do I resolve a dispute with the bank?`
+- `What is the capital of Italy?` The document does not cover it. The agent says so.
+
+**Several agents**
+
+- `Show user 101 and explain how stop payments work.`
+- `Cancel user 102, explain the arbitration clause, and tell me the capital of France.` Runs `account_agent`, `rag_agent` and the coordinator.
+
+Cancel and activate change the database. Reset: `Activate user 101.` and `Cancel user 102.`
+
 ## Frontend GUI
 
 ![Frontend GUI](ui.png)
